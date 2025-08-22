@@ -1,0 +1,42 @@
+{
+  "employees": [
+    {
+      "id": 1,
+      "name": "John Doe",
+      "position": "Developer",
+      "avatar": "https://via.placeholder.com/50"
+    },
+    {
+      "id": 2,
+      "name": "Jane Smith",
+      "position": "Designer",
+      "avatar": "https://via.placeholder.com/50"
+    },
+    {
+      "id": 3,
+      "name": "Mike Johnson",
+      "position": "Project Manager",
+      "avatar": "https://via.placeholder.com/50"
+    }
+  ],
+  "locations": [
+    {
+      "id": 1,
+      "name": "Main Office Building",
+      "address": "123 Business District, Metro Manila",
+      "coordinates": {
+        "latitude": 14.5995,
+        "longitude": 120.9842
+      }
+    },
+    {
+      "id": 2,
+      "name": "Branch Office - Tarlac",
+      "address": "456 Commercial Center, Tarlac City",
+      "coordinates": {
+        "latitude": 15.4817,
+        "longitude": 120.5979
+      }
+    }
+  ]
+}
