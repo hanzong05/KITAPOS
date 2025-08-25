@@ -15,7 +15,7 @@ class AuthInitializer {
   async initialize() {
     try {
       console.log('🚀 Starting authentication service initialization...');
-      console.log('📡 Target server: https://byd-pos-middleware.vercel.app');
+      console.log('📡 Target server: https://kitapos-two.vercel.app/');
       
       // Test connection to your Vercel deployment
       const connectionStatus = await this.testVercelConnection();
@@ -143,7 +143,7 @@ class AuthInitializer {
       isHealthy: this.isHealthy,
       lastCheck: this.lastCheck,
       useLocalFallback: this.useLocalFallback,
-      serverUrl: 'https://byd-pos-middleware.vercel.app'
+      serverUrl: 'https://kitapos-two.vercel.app/'
     };
   }
 
