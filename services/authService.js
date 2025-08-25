@@ -5,7 +5,7 @@ import databaseService from './database';
 
 class AuthService {
   constructor() {
-    this.baseURL = 'https://kitapos-two.vercel.app/';
+    this.baseURL = 'https://kitapos-two.vercel.app';
     this.token = null;
     this.user = null;
     this.isOfflineMode = false;
