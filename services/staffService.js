@@ -4,7 +4,7 @@ import authService from './authService'
 
 class StaffService {
   constructor() {
-    this.baseURL = 'https://byd-pos-middleware.vercel.app'
+  this.baseURL = 'https://kitapos-two.vercel.app'
     // Cache to map local IDs to Supabase IDs
     this.idMappingCache = new Map()
   }
