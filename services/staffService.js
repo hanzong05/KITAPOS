@@ -1,10 +1,12 @@
-// services/staffService.js - Complete fixed version with Supabase integration
+// services/staffService.js - Fixed version with proper Supabase deletion
 import staffDatabaseService from './staffDatabase'
 import authService from './authService'
 
 class StaffService {
   constructor() {
     this.baseURL = 'https://byd-pos-middleware.vercel.app'
+    // Cache to map local IDs to Supabase IDs
+    this.idMappingCache = new Map()
   }
 
   getAuthHeaders() {
@@ -34,6 +36,16 @@ class StaffService {
       if (response.ok) {
         const data = await response.json()
         console.log('✅ Connection successful, staff count:', data.staff?.length || 0)
+        
+        // Cache ID mappings when fetching staff
+        if (data.staff && Array.isArray(data.staff)) {
+          data.staff.forEach(staff => {
+            if (staff.id && staff.staff_id) {
+              this.idMappingCache.set(staff.staff_id, staff.id)
+            }
+          })
+        }
+        
         return { success: true, count: data.staff?.length || 0 }
       } else {
         const errorText = await response.text()
@@ -43,6 +55,41 @@ class StaffService {
     } catch (error) {
       console.error('❌ Connection test failed:', error)
       return { success: false, error: error.message }
+    }
+  }
+
+  // Get Supabase ID from staff_id
+  async getSupabaseIdFromStaffId(staffId) {
+    try {
+      // First check cache
+      if (this.idMappingCache.has(staffId)) {
+        return this.idMappingCache.get(staffId)
+      }
+
+      // If not in cache, fetch from Supabase
+      console.log('🔍 Looking up Supabase ID for staff_id:', staffId)
+      
+      const response = await fetch(`${this.baseURL}/staff?staff_id=${staffId}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.staff && data.staff.length > 0) {
+          const supabaseId = data.staff[0].id
+          // Cache the mapping
+          this.idMappingCache.set(staffId, supabaseId)
+          console.log('✅ Found Supabase ID:', supabaseId)
+          return supabaseId
+        }
+      }
+      
+      console.log('⚠️ No Supabase ID found for staff_id:', staffId)
+      return null
+    } catch (error) {
+      console.error('❌ Failed to get Supabase ID:', error)
+      return null
     }
   }
 
@@ -70,6 +117,16 @@ class StaffService {
 
       const data = await response.json()
       console.log('✅ Staff fetched from Supabase:', data.count || data.staff?.length || 0)
+      
+      // Cache ID mappings
+      if (data.staff && Array.isArray(data.staff)) {
+        data.staff.forEach(staff => {
+          if (staff.id && staff.staff_id) {
+            this.idMappingCache.set(staff.staff_id, staff.id)
+          }
+        })
+      }
+      
       return data.staff || []
 
     } catch (error) {
@@ -78,154 +135,147 @@ class StaffService {
     }
   }
 
-  // Create staff on Supabase
-  async createStaffOnSupabase(staffData, currentUser) {
+  // Delete staff from Supabase using the correct ID
+  async deleteStaffFromSupabase(staffId, staffData = null) {
     try {
-      console.log('📝 Creating staff on Supabase:', staffData.name)
+      console.log('🗑️ Preparing to delete staff from Supabase:', staffId)
+
+      // Determine the correct Supabase ID to use
+      let supabaseId = staffId
       
-      // For managers, ensure store_id is set to their store
-      if (currentUser?.role === 'manager' && currentUser.store_id) {
-        staffData.store_id = currentUser.store_id
-      }
-
-      // Map local 'role' to Supabase 'position' field
-      const supabaseStaffData = {
-        name: staffData.name,
-        staff_id: staffData.staff_id,
-        store_id: staffData.store_id,
-        passcode: staffData.passcode,
-        image_url: staffData.image_url || null,
-        position: staffData.role || 'staff', // Send as 'position' field for Supabase
-        hourly_rate: parseFloat(staffData.hourly_rate || 15.00),
-        is_active: true
-      }
-
-      console.log('📤 Sending to Supabase:', {
-        ...supabaseStaffData,
-        passcode: '***' // Hide passcode in logs
-      });
-
-      const response = await fetch(`${this.baseURL}/staff`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(supabaseStaffData)
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        let errorData = {}
-        
-        try {
-          errorData = JSON.parse(errorText)
-        } catch {
-          errorData = { error: errorText || `HTTP ${response.status}` }
+      // If we have staff data, use staff_id to lookup the Supabase ID
+      if (staffData && staffData.staff_id) {
+        const mappedId = await this.getSupabaseIdFromStaffId(staffData.staff_id)
+        if (mappedId) {
+          supabaseId = mappedId
+          console.log('📍 Using mapped Supabase ID:', supabaseId)
+        } else {
+          console.log('⚠️ Could not find Supabase ID, attempting with local ID')
         }
-        
-        console.error('❌ Supabase response error:', {
-          status: response.status,
-          statusText: response.statusText,
-          headers: Object.fromEntries(response.headers.entries()),
-          body: errorData
-        });
-        
-        throw new Error(errorData.error || errorData.message || `Server error: ${response.status} - ${response.statusText}`)
+      }
+      // If the ID looks like a local ID (starts with 'staff-'), try to find the Supabase ID
+      else if (staffId.startsWith('staff-')) {
+        console.log('⚠️ Local ID detected, cannot delete from Supabase without staff_id')
+        throw new Error('Cannot delete from Supabase: missing staff_id for mapping')
       }
 
-      const result = await response.json()
-      console.log('✅ Staff created on Supabase:', result.staff?.staff_id)
-      return result.staff
+      console.log('🗑️ Deleting from Supabase with ID:', supabaseId)
 
-    } catch (error) {
-      console.error('❌ Failed to create staff on Supabase:', {
-        message: error.message,
-        stack: error.stack,
-        staffData: {
-          name: staffData.name,
-          staff_id: staffData.staff_id,
-          store_id: staffData.store_id,
-          role: staffData.role
-        }
-      });
-      throw error
-    }
-  }
-
-  // Update staff on Supabase
-  async updateStaffOnSupabase(staffId, updateData) {
-    try {
-      console.log('📝 Updating staff on Supabase:', staffId)
-
-      // Map local 'role' to Supabase 'position' field
-      const supabaseUpdateData = { ...updateData }
-      if (updateData.role) {
-        supabaseUpdateData.position = updateData.role
-        delete supabaseUpdateData.role
-      }
-
-      const response = await fetch(`${this.baseURL}/staff/${staffId}`, {
-        method: 'PUT',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(supabaseUpdateData)
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        let errorData = {}
-        
-        try {
-          errorData = JSON.parse(errorText)
-        } catch {
-          errorData = { error: errorText || `HTTP ${response.status}` }
-        }
-        
-        throw new Error(errorData.error || errorData.message || `Update failed: ${response.status}`)
-      }
-
-      const result = await response.json()
-      console.log('✅ Staff updated on Supabase')
-      return result.staff
-
-    } catch (error) {
-      console.error('❌ Failed to update staff on Supabase:', error)
-      throw error
-    }
-  }
-
-  // Delete staff from Supabase
-  async deleteStaffFromSupabase(staffId) {
-    try {
-      console.log('🗑️ Deleting staff from Supabase:', staffId)
-
-      const response = await fetch(`${this.baseURL}/staff/${staffId}`, {
+      const response = await fetch(`${this.baseURL}/staff/${supabaseId}`, {
         method: 'DELETE',
         headers: this.getAuthHeaders()
       })
 
+      const responseText = await response.text()
+      console.log('📨 Supabase delete response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: responseText
+      })
+
       if (!response.ok) {
-        const errorText = await response.text()
         let errorData = {}
         
         try {
-          errorData = JSON.parse(errorText)
+          errorData = JSON.parse(responseText)
         } catch {
-          errorData = { error: errorText || `HTTP ${response.status}` }
+          errorData = { error: responseText || `HTTP ${response.status}` }
         }
         
         console.error('❌ Supabase delete error:', {
           status: response.status,
           statusText: response.statusText,
           body: errorData
-        });
+        })
         
         throw new Error(errorData.error || errorData.message || `Delete failed: ${response.status}`)
       }
 
-      const result = await response.json()
+      let result = {}
+      try {
+        result = JSON.parse(responseText)
+      } catch {
+        result = { success: true }
+      }
+
       console.log('✅ Staff deleted from Supabase')
+      
+      // Clear from cache
+      if (staffData && staffData.staff_id) {
+        this.idMappingCache.delete(staffData.staff_id)
+      }
+      
       return result
 
     } catch (error) {
       console.error('❌ Failed to delete staff from Supabase:', error)
+      throw error
+    }
+  }
+
+  // Delete staff with dual persistence - FIXED VERSION
+  async deleteStaff(staffId, currentUser) {
+    try {
+      console.log('🗑️ Deleting staff with ID:', staffId)
+      
+      if (!currentUser) {
+        throw new Error('User context required')
+      }
+
+      // First, get the full staff data from local database
+      await staffDatabaseService.initializeStaffDatabase()
+      const staffData = await staffDatabaseService.getStaffById(staffId)
+      
+      if (!staffData) {
+        throw new Error('Staff member not found')
+      }
+
+      console.log('📋 Staff data found:', {
+        id: staffData.id,
+        staff_id: staffData.staff_id,
+        name: staffData.name
+      })
+
+      let supabaseDeleted = false
+      let localDeleted = false
+
+      // Try to delete from Supabase first
+      try {
+        const connectionTest = await this.testConnection()
+        if (connectionTest.success) {
+          // Pass both the ID and the staff data for proper mapping
+          await this.deleteStaffFromSupabase(staffId, staffData)
+          supabaseDeleted = true
+          console.log('✅ Staff deleted from Supabase')
+        } else {
+          console.log('⚠️ No Supabase connection, deleting locally only')
+        }
+      } catch (supabaseError) {
+        console.log('⚠️ Supabase deletion failed:', supabaseError.message)
+        // Continue with local deletion even if Supabase fails
+      }
+
+      // Delete from local database
+      try {
+        await staffDatabaseService.deleteStaff(staffId, currentUser)
+        localDeleted = true
+        console.log('✅ Staff deleted locally')
+      } catch (localError) {
+        console.error('❌ Local deletion failed:', localError)
+        throw localError
+      }
+
+      return { 
+        success: true, 
+        supabaseDeleted, 
+        localDeleted,
+        message: supabaseDeleted ? 
+          'Staff deleted from both Supabase and local database' : 
+          'Staff deleted locally (Supabase unavailable)'
+      }
+
+    } catch (error) {
+      console.error('❌ Staff deletion failed:', error)
       throw error
     }
   }
@@ -249,12 +299,12 @@ class StaffService {
       for (const staff of supabaseStaff) {
         try {
           const localStaffData = {
-            id: staff.id,
+            id: staff.id, // Keep the Supabase ID
             staff_id: staff.staff_id,
             name: staff.name,
             store_id: staff.store_id,
             passcode: staff.passcode,
-            role: staff.position || staff.role || 'staff', // Map 'position' to 'role'
+            role: staff.position || staff.role || 'staff',
             hourly_rate: parseFloat(staff.hourly_rate || 15.00),
             image_url: staff.image_url,
             is_active: staff.is_active ? 1 : 0,
@@ -296,42 +346,6 @@ class StaffService {
     }
   }
 
-  // Get staff with proper user context
-  async getStaff(currentUser, options = {}) {
-    try {
-      const { forceRefresh = false } = options
-      
-      if (!currentUser) {
-        throw new Error('User context required')
-      }
-
-      await staffDatabaseService.initializeStaffDatabase()
-      
-      // Try local first unless force refresh
-      if (!forceRefresh) {
-        const localStaff = await staffDatabaseService.getStaffByUserAccess(currentUser)
-        
-        if (localStaff.length > 0) {
-          console.log(`📊 Retrieved ${localStaff.length} staff from local database`)
-          return localStaff
-        }
-      }
-      
-      // Fallback to Supabase and sync
-      console.log('🔄 Fetching from Supabase and syncing...')
-      await this.syncStaffFromSupabase(currentUser)
-      
-      // Return local data after sync
-      const syncedStaff = await staffDatabaseService.getStaffByUserAccess(currentUser)
-      console.log(`📊 Retrieved ${syncedStaff.length} staff after sync`)
-      return syncedStaff
-
-    } catch (error) {
-      console.error('❌ Failed to get staff:', error)
-      throw error
-    }
-  }
-
   // Create staff with dual persistence
   async createStaff(staffData, currentUser) {
     try {
@@ -353,7 +367,7 @@ class StaffService {
       const existing = await staffDatabaseService.db.getFirstAsync(
         'SELECT id, staff_id FROM staff WHERE staff_id = ? AND is_active = 1',
         [staffData.staff_id.toUpperCase()]
-      );
+      )
 
       if (existing) {
         throw new Error(`Staff ID "${staffData.staff_id}" already exists. Please use a different ID.`)
@@ -368,13 +382,16 @@ class StaffService {
           
           // Sync to local if Supabase succeeded
           if (createdStaff) {
+            // Cache the ID mapping
+            this.idMappingCache.set(createdStaff.staff_id, createdStaff.id)
+            
             const localData = {
-              id: createdStaff.id,
+              id: createdStaff.id, // Use Supabase ID
               staff_id: createdStaff.staff_id,
               name: createdStaff.name,
               store_id: createdStaff.store_id,
               passcode: createdStaff.passcode,
-              role: createdStaff.position || createdStaff.role || 'staff', // Map position to role
+              role: createdStaff.position || createdStaff.role || 'staff',
               hourly_rate: parseFloat(createdStaff.hourly_rate || 15.00),
               image_url: createdStaff.image_url,
               is_active: 1,
@@ -465,6 +482,119 @@ class StaffService {
     }
   }
 
+  // Create staff on Supabase
+  async createStaffOnSupabase(staffData, currentUser) {
+    try {
+      console.log('📝 Creating staff on Supabase:', staffData.name)
+      
+      // For managers, ensure store_id is set to their store
+      if (currentUser?.role === 'manager' && currentUser.store_id) {
+        staffData.store_id = currentUser.store_id
+      }
+
+      // Map local 'role' to Supabase 'position' field
+      const supabaseStaffData = {
+        name: staffData.name,
+        staff_id: staffData.staff_id,
+        store_id: staffData.store_id,
+        passcode: staffData.passcode,
+        image_url: staffData.image_url || null,
+        position: staffData.role || 'staff',
+        hourly_rate: parseFloat(staffData.hourly_rate || 15.00),
+        is_active: true
+      }
+
+      console.log('📤 Sending to Supabase:', {
+        ...supabaseStaffData,
+        passcode: '***'
+      })
+
+      const response = await fetch(`${this.baseURL}/staff`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(supabaseStaffData)
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        let errorData = {}
+        
+        try {
+          errorData = JSON.parse(errorText)
+        } catch {
+          errorData = { error: errorText || `HTTP ${response.status}` }
+        }
+        
+        console.error('❌ Supabase response error:', {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: errorData
+        })
+        
+        throw new Error(errorData.error || errorData.message || `Server error: ${response.status} - ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ Staff created on Supabase:', result.staff?.staff_id)
+      return result.staff
+
+    } catch (error) {
+      console.error('❌ Failed to create staff on Supabase:', {
+        message: error.message,
+        stack: error.stack,
+        staffData: {
+          name: staffData.name,
+          staff_id: staffData.staff_id,
+          store_id: staffData.store_id,
+          role: staffData.role
+        }
+      })
+      throw error
+    }
+  }
+
+  // Update staff on Supabase
+  async updateStaffOnSupabase(staffId, updateData) {
+    try {
+      console.log('📝 Updating staff on Supabase:', staffId)
+
+      // Map local 'role' to Supabase 'position' field
+      const supabaseUpdateData = { ...updateData }
+      if (updateData.role) {
+        supabaseUpdateData.position = updateData.role
+        delete supabaseUpdateData.role
+      }
+
+      const response = await fetch(`${this.baseURL}/staff/${staffId}`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(supabaseUpdateData)
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        let errorData = {}
+        
+        try {
+          errorData = JSON.parse(errorText)
+        } catch {
+          errorData = { error: errorText || `HTTP ${response.status}` }
+        }
+        
+        throw new Error(errorData.error || errorData.message || `Update failed: ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ Staff updated on Supabase')
+      return result.staff
+
+    } catch (error) {
+      console.error('❌ Failed to update staff on Supabase:', error)
+      throw error
+    }
+  }
+
   // Update staff with dual persistence
   async updateStaff(staffId, updateData, currentUser) {
     try {
@@ -509,54 +639,38 @@ class StaffService {
     }
   }
 
-  // Delete staff with dual persistence
-  async deleteStaff(staffId, currentUser) {
+  // Get staff with proper user context
+  async getStaff(currentUser, options = {}) {
     try {
-      console.log('🗑️ Deleting staff:', staffId)
+      const { forceRefresh = false } = options
       
       if (!currentUser) {
         throw new Error('User context required')
       }
 
-      let supabaseDeleted = false
-      let localDeleted = false
-
-      // Try to delete from Supabase first
-      try {
-        const connectionTest = await this.testConnection()
-        if (connectionTest.success) {
-          await this.deleteStaffFromSupabase(staffId)
-          supabaseDeleted = true
-          console.log('✅ Staff deleted from Supabase')
-        } else {
-          console.log('⚠️ No Supabase connection, deleting locally only')
+      await staffDatabaseService.initializeStaffDatabase()
+      
+      // Try local first unless force refresh
+      if (!forceRefresh) {
+        const localStaff = await staffDatabaseService.getStaffByUserAccess(currentUser)
+        
+        if (localStaff.length > 0) {
+          console.log(`📊 Retrieved ${localStaff.length} staff from local database`)
+          return localStaff
         }
-      } catch (supabaseError) {
-        console.log('⚠️ Supabase deletion failed:', supabaseError.message)
-        // Continue with local deletion even if Supabase fails
       }
-
-      // Delete from local database
-      try {
-        await staffDatabaseService.deleteStaff(staffId, currentUser)
-        localDeleted = true
-        console.log('✅ Staff deleted locally')
-      } catch (localError) {
-        console.error('❌ Local deletion failed:', localError)
-        throw localError
-      }
-
-      return { 
-        success: true, 
-        supabaseDeleted, 
-        localDeleted,
-        message: supabaseDeleted ? 
-          'Staff deleted from both Supabase and local database' : 
-          'Staff deleted locally (Supabase unavailable)'
-      }
+      
+      // Fallback to Supabase and sync
+      console.log('🔄 Fetching from Supabase and syncing...')
+      await this.syncStaffFromSupabase(currentUser)
+      
+      // Return local data after sync
+      const syncedStaff = await staffDatabaseService.getStaffByUserAccess(currentUser)
+      console.log(`📊 Retrieved ${syncedStaff.length} staff after sync`)
+      return syncedStaff
 
     } catch (error) {
-      console.error('❌ Staff deletion failed:', error)
+      console.error('❌ Failed to get staff:', error)
       throw error
     }
   }
