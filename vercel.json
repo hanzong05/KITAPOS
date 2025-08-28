@@ -1,9 +1,7 @@
 {
-  "version": 2,
   "functions": {
     "api/**/*.js": {
-      "runtime": "nodejs18.x",
-      "maxDuration": 10
+      "runtime": "nodejs20.x"
     }
   },
   "headers": [
@@ -12,8 +10,7 @@
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Requested-With" },
-        { "key": "Access-Control-Max-Age", "value": "86400" }
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
       ]
     }
   ],
@@ -23,24 +20,12 @@
       "destination": "/api/health"
     },
     {
-      "source": "/auth/login",
-      "destination": "/api/auth/login"
+      "source": "/auth/(.*)",
+      "destination": "/api/auth/$1"
     },
     {
-      "source": "/auth/register",
-      "destination": "/api/auth/register"
-    },
-    {
-      "source": "/auth/profile",
-      "destination": "/api/auth/profile"
-    },
-    {
-      "source": "/auth/logout",
-      "destination": "/api/auth/logout"
-    },
-    {
-      "source": "/sync/users",
-      "destination": "/api/sync/users"
+      "source": "/sync/(.*)",
+      "destination": "/api/sync/$1"
     }
   ]
 }
