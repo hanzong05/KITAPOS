@@ -1,6 +1,7 @@
-// api/sync/users.js - User sync endpoint for the mobile app
+// api/sync/users.js - User sync with Supabase
+import { supabase } from '../../lib/supabase';
+
 export default async function handler(req, res) {
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -22,86 +23,60 @@ export default async function handler(req, res) {
       });
     }
 
-    // Demo users data for sync
-    const users = [
-      {
-        id: 'demo-admin-1',
-        name: 'Demo Admin',
-        email: 'admin@techcorp.com',
-        password: 'password123', // In a real app, this would be hashed
-        role: 'super_admin',
-        phone: '+1-555-0100',
-        is_active: true,
-        last_login: null,
-        created_at: '2024-01-15T10:00:00Z',
-        updated_at: '2024-01-15T10:00:00Z'
-      },
-      {
-        id: 'demo-manager-1',
-        name: 'Demo Manager',
-        email: 'manager@techcorp.com', 
-        password: 'password123',
-        role: 'manager',
-        phone: '+1-555-0101',
-        is_active: true,
-        last_login: null,
-        created_at: '2024-01-16T10:00:00Z',
-        updated_at: '2024-01-16T10:00:00Z'
-      },
-      {
-        id: 'demo-cashier-1',
-        name: 'Demo Cashier',
-        email: 'cashier@techcorp.com',
-        password: 'password123', 
-        role: 'cashier',
-        phone: '+1-555-0102',
-        is_active: true,
-        last_login: null,
-        created_at: '2024-01-17T10:00:00Z',
-        updated_at: '2024-01-17T10:00:00Z'
-      },
-      {
-        id: 'demo-cashier-2',
-        name: 'Demo Cashier 2',
-        email: 'cashier2@techcorp.com',
-        password: 'password123',
-        role: 'cashier', 
-        phone: '+1-555-0103',
-        is_active: true,
-        last_login: null,
-        created_at: '2024-01-18T10:00:00Z',
-        updated_at: '2024-01-18T10:00:00Z'
-      }
-    ];
-
     // Get query parameters for filtering
     const { store_id, role, is_active, limit } = req.query;
 
-    let filteredUsers = [...users];
+    // Build query
+    let query = supabase
+      .from('users')
+      .select('id, name, email, role, phone, store_id, is_active, last_login, created_at, updated_at');
 
     // Apply filters
+    if (store_id) {
+      query = query.eq('store_id', store_id);
+    }
+
     if (role) {
-      filteredUsers = filteredUsers.filter(user => user.role === role);
+      query = query.eq('role', role);
     }
 
     if (is_active !== undefined) {
-      const activeFilter = is_active === 'true';
-      filteredUsers = filteredUsers.filter(user => user.is_active === activeFilter);
+      query = query.eq('is_active', is_active === 'true');
+    } else {
+      // Default to active users only
+      query = query.eq('is_active', true);
     }
 
     // Apply limit
     if (limit) {
       const limitNum = parseInt(limit, 10);
       if (!isNaN(limitNum) && limitNum > 0) {
-        filteredUsers = filteredUsers.slice(0, limitNum);
+        query = query.limit(limitNum);
       }
     }
 
+    // Order by created date
+    query = query.order('created_at', { ascending: false });
+
+    // Execute query
+    const { data: users, error, count } = await query;
+
+    if (error) {
+      console.error('Supabase query error:', error);
+      return res.status(500).json({ error: 'Database query failed' });
+    }
+
+    // Transform data to match expected format (add password for compatibility)
+    const transformedUsers = users.map(user => ({
+      ...user,
+      password: 'password123' // For demo compatibility with local auth
+    }));
+
     // Return the users data
     return res.status(200).json({
-      users: filteredUsers,
-      count: filteredUsers.length,
-      total: users.length,
+      users: transformedUsers,
+      count: transformedUsers.length,
+      total: count || transformedUsers.length,
       sync_timestamp: new Date().toISOString(),
       filters: {
         store_id: store_id || null,

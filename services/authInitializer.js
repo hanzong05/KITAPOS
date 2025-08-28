@@ -1,4 +1,4 @@
-// services/authInitializer.js - Simplified for Vercel deployment only
+// services/authInitializer.js - Complete implementation for Vercel + Supabase
 import authService from './authService';
 
 class AuthInitializer {
@@ -15,7 +15,7 @@ class AuthInitializer {
   async initialize() {
     try {
       console.log('🚀 Starting authentication service initialization...');
-      console.log('📡 Target server: https://kitapos-two.vercel.app');
+      console.log('📡 Target server: https://your-vercel-project.vercel.app'); // Update this URL
       
       // Test connection to your Vercel deployment
       const connectionStatus = await this.testVercelConnection();
@@ -68,6 +68,8 @@ class AuthInitializer {
       
       if (isConnected) {
         console.log('✅ Vercel deployment is healthy');
+        console.log('📊 Database status:', healthData.database);
+        console.log('🔗 Supabase status:', healthData.supabase?.connected ? 'Connected' : 'Disconnected');
       } else {
         console.log('⚠️ Vercel deployment responded but database not connected');
       }
@@ -143,7 +145,7 @@ class AuthInitializer {
       isHealthy: this.isHealthy,
       lastCheck: this.lastCheck,
       useLocalFallback: this.useLocalFallback,
-      serverUrl: 'https://kitapos-two.vercel.app'
+      serverUrl: authService.baseURL // Get the actual URL from authService
     };
   }
 
@@ -270,6 +272,17 @@ class AuthInitializer {
   // Get fallback data (for demo mode)
   getFallbackData() {
     return this.fallbackData;
+  }
+
+  // Get service info
+  getServiceInfo() {
+    return {
+      activeService: this.activeService,
+      isHealthy: this.isHealthy,
+      useLocalFallback: this.useLocalFallback,
+      lastCheck: this.lastCheck,
+      serverUrl: authService.baseURL
+    };
   }
 }
 

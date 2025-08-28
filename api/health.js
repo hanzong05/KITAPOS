@@ -1,4 +1,6 @@
-// api/health.js - Vercel serverless function for health checks
+// api/health.js - Health check with Supabase connection test
+import { supabase } from '../lib/supabase';
+
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,7 +22,7 @@ export default async function handler(req, res) {
     const healthData = {
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      database: 'connected', // You can implement actual DB check here
+      database: 'disconnected',
       server: {
         environment: process.env.NODE_ENV || 'production',
         region: process.env.VERCEL_REGION || 'unknown',
@@ -28,16 +30,37 @@ export default async function handler(req, res) {
       }
     };
 
-    // If you have a database connection to test, add it here:
-    // try {
-    //   await testDatabaseConnection();
-    //   healthData.database = 'connected';
-    // } catch (dbError) {
-    //   healthData.database = 'disconnected';
-    //   healthData.status = 'degraded';
-    // }
+    // Test Supabase connection
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('count')
+        .limit(1);
 
-    return res.status(200).json(healthData);
+      if (!error) {
+        healthData.database = 'connected';
+        healthData.supabase = {
+          connected: true,
+          url: process.env.SUPABASE_URL ? 'configured' : 'missing'
+        };
+      } else {
+        healthData.database = 'error';
+        healthData.supabase = {
+          connected: false,
+          error: error.message
+        };
+      }
+    } catch (dbError) {
+      console.error('Database health check error:', dbError);
+      healthData.database = 'error';
+      healthData.supabase = {
+        connected: false,
+        error: dbError.message
+      };
+    }
+
+    const statusCode = healthData.database === 'connected' ? 200 : 503;
+    return res.status(statusCode).json(healthData);
 
   } catch (error) {
     console.error('Health check error:', error);

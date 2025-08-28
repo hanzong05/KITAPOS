@@ -1,4 +1,6 @@
-// api/auth/register.js
+// api/auth/register.js - Registration with Supabase
+import { supabase, hashPassword } from '../../lib/supabase';
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -21,25 +23,51 @@ export default async function handler(req, res) {
       });
     }
 
-    // Check if email already exists (demo data)
-    if (email.toLowerCase() === 'admin@techcorp.com') {
+    // Check if email already exists
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    if (existingUser) {
       return res.status(409).json({ 
         error: 'An account with this email already exists' 
       });
     }
 
-    const newUser = {
-      id: `user-${Date.now()}`,
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
-      phone: phone || null,
-      role: role || 'cashier'
-    };
+    // Hash password (use bcrypt in production)
+    const passwordHash = hashPassword(password);
 
-    const token = `demo_token_${newUser.id}_${Date.now()}`;
+    // Insert new user
+    const { data: newUser, error } = await supabase
+      .from('users')
+      .insert([{
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        password_hash: passwordHash,
+        phone: phone || null,
+        role: role || 'cashier',
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase insert error:', error);
+      return res.status(500).json({ error: 'Failed to create account' });
+    }
+
+    // Generate token
+    const token = `jwt_${newUser.id}_${Date.now()}`;
+
+    // Return user data without password
+    const { password_hash, ...userWithoutPassword } = newUser;
 
     return res.status(201).json({
-      user: newUser,
+      user: userWithoutPassword,
       token,
       source: 'supabase',
       message: 'Account created successfully'
@@ -49,59 +77,4 @@ export default async function handler(req, res) {
     console.error('Registration error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
-}
-
-// api/auth/profile.js  
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authorization token required' });
-    }
-
-    const user = {
-      id: 'demo-user-1',
-      name: 'Demo User',
-      email: 'demo@techcorp.com',
-      role: 'cashier'
-    };
-
-    return res.status(200).json({ user });
-
-  } catch (error) {
-    console.error('Profile error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}
-
-// api/auth/logout.js
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  return res.status(200).json({
-    message: 'Logged out successfully'
-  });
 }

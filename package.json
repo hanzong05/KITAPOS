@@ -1,41 +1,47 @@
 {
-  "name": "myposexpo",
+  "name": "pos-vercel-backend",
   "version": "1.0.0",
-  "main": "expo-router/entry",
+  "description": "POS System Backend API on Vercel with Supabase",
+  "main": "index.js",
+  "type": "module",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "dev": "vercel dev",
+    "build": "echo 'No build step required for serverless functions'",
+    "deploy": "vercel --prod",
+    "test": "echo 'No tests specified'",
+    "lint": "echo 'No linting configured'"
   },
   "dependencies": {
-    "@react-native-async-storage/async-storage": "^2.2.0",
-    "@supabase/supabase-js": "^2.55.0",
-    "axios": "^1.11.0",
-    "expo": "~53.0.20",
-    "expo-camera": "~16.1.11",
-    "expo-constants": "~17.1.7",
-    "expo-image-picker": "~16.1.4",
-    "expo-linking": "~7.1.7",
-    "expo-location": "~18.1.6",
-    "expo-media-library": "~17.1.7",
-    "expo-router": "~5.1.4",
-    "expo-sqlite": "^15.2.14",
-    "expo-status-bar": "~2.2.3",
-    "nativewind": "^4.1.23",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
-    "react-native": "0.79.5",
-    "react-native-paper": "^5.14.5",
-    "react-native-safe-area-context": "5.4.0",
-    "react-native-screens": "~4.11.1",
-    "react-native-sqlite-storage": "^6.0.1",
-    "react-native-url-polyfill": "^2.0.0",
-    "react-native-web": "^0.20.0"
+    "@supabase/supabase-js": "^2.38.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0",
-    "tailwindcss": "^3.4.17"
+    "vercel": "^33.0.0",
+    "@types/node": "^20.0.0"
   },
-  "private": true
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "pos", 
+    "api", 
+    "vercel", 
+    "supabase", 
+    "serverless",
+    "react-native",
+    "authentication",
+    "database"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/pos-vercel-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/pos-vercel-backend/issues"
+  },
+  "homepage": "https://github.com/yourusername/pos-vercel-backend#readme"
 }
