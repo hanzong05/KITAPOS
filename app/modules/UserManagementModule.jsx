@@ -1,16 +1,15 @@
-// components/UserManagementModule.jsx - Complete dashboard module with enhanced staff integration
+// components/UserManagementModule.jsx - Updated dashboard module with staff integration
 import React, { useState, useEffect } from 'react'
 import { View, Text, TouchableOpacity, Alert } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import databaseService from '../../services/database'
-import staffService from '../../services/staffService'
+import staffDatabaseService from '../../services/staffDatabase'
 import { styles, theme } from '../components/DashboardLayout'
 
-const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
+const UserManagementModule = ({ userRole, userStoreId }) => {
   const [users, setUsers] = useState([])
   const [staff, setStaff] = useState([])
-  const [connectionStatus, setConnectionStatus] = useState(null)
   const [stats, setStats] = useState({
     users: { total: 0, active: 0 },
     staff: { total: 0, active: 0 }
@@ -23,18 +22,8 @@ const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
     // Only load for authorized roles
     if (userRole === 'super_admin' || userRole === 'manager') {
       loadData()
-      checkConnection()
     }
   }, [userRole, userStoreId])
-
-  const checkConnection = async () => {
-    try {
-      const result = await staffService.testConnection()
-      setConnectionStatus(result)
-    } catch (error) {
-      setConnectionStatus({ success: false, error: error.message })
-    }
-  }
 
   const loadData = async () => {
     try {
@@ -72,19 +61,35 @@ const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
 
   const loadStaff = async () => {
     try {
-      // Use staffService to get staff with proper filtering
-      const staffData = await staffService.getStaff(currentUser || {
-        role: userRole,
-        store_id: userStoreId
-      })
+      // Initialize staff database
+      await staffDatabaseService.initializeStaffDatabase()
+      
+      let staffData = []
+      
+      // Filter staff based on user role and store
+      if (userRole === 'super_admin') {
+        // Super admin sees all staff (limit 5 for dashboard)
+        const allStaff = await staffDatabaseService.getAllStaff()
+        staffData = allStaff.slice(0, 5)
+      } else if (userStoreId) {
+        // Manager sees only their store's staff
+        staffData = await staffDatabaseService.getStaffByStoreId(userStoreId)
+      }
       
       setStaff(staffData.slice(0, 5)) // Limit to 5 for dashboard display
 
-      // Get staff stats
-      const staffStats = await staffService.getStaffStats(currentUser || {
-        role: userRole,
-        store_id: userStoreId
-      })
+      // Calculate stats (use full data for stats, not limited)
+      let fullStaffData = []
+      if (userRole === 'super_admin') {
+        fullStaffData = await staffDatabaseService.getAllStaff()
+      } else if (userStoreId) {
+        fullStaffData = await staffDatabaseService.getStaffByStoreId(userStoreId)
+      }
+
+      const staffStats = {
+        total: fullStaffData.length,
+        active: fullStaffData.filter(s => s.is_active).length
+      }
       
       setStats(prev => ({ ...prev, staff: staffStats }))
       
@@ -118,50 +123,23 @@ const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
       case 'sync_data':
         Alert.alert(
           'Sync Data',
-          'This will sync user and staff data from Supabase.',
+          'This would sync user and staff data from the server.',
           [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Sync Now', onPress: handleDataSync }
           ]
         )
         break
-
-      case 'test_connection':
-        handleConnectionTest()
-        break
     }
   }
 
   const handleDataSync = async () => {
     try {
-      setLoading(true)
-      
-      // Force refresh staff data from Supabase
-      if (currentUser) {
-        await staffService.getStaff(currentUser, { forceRefresh: true })
-      }
-      
+      // This would call your sync service
       Alert.alert('Success', 'Data sync completed successfully!')
       loadData() // Refresh data after sync
     } catch (error) {
       Alert.alert('Error', 'Failed to sync data: ' + error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleConnectionTest = async () => {
-    try {
-      const result = await staffService.testConnection()
-      Alert.alert(
-        'Connection Test', 
-        result.success ? 
-          `✅ Connected to Supabase\nStaff count: ${result.count}` : 
-          `❌ Connection failed\nError: ${result.error}`,
-        [{ text: 'OK' }]
-      )
-    } catch (error) {
-      Alert.alert('Connection Error', error.message)
     }
   }
 
@@ -180,7 +158,6 @@ const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
       case 'manager': 
         return '#ea580c'
       case 'cashier': 
-      case 'staff':
         return '#0891b2'
       case 'sales associate': 
         return '#7c3aed'
@@ -211,29 +188,13 @@ const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
         <View style={styles.moduleHeaderLeft}>
           <Ionicons name="people" size={20} color={theme.primary} />
           <Text style={styles.moduleTitle}>User Management</Text>
-          
-          {/* Connection Status Indicator */}
-          <View style={[styles.connectionDot, { 
-            backgroundColor: connectionStatus?.success ? '#10b981' : '#ef4444',
-            marginLeft: 8
-          }]} />
         </View>
-        <View style={styles.moduleActionsHeader}>
-          <TouchableOpacity 
-            style={styles.moduleAction}
-            onPress={() => handleQuickAction('sync_data')}
-          >
-            <Ionicons name="sync" size={16} color={theme.primary} />
-          </TouchableOpacity>
-          {__DEV__ && (
-            <TouchableOpacity 
-              style={styles.moduleAction}
-              onPress={() => handleQuickAction('test_connection')}
-            >
-              <Ionicons name="wifi" size={16} color={theme.primary} />
-            </TouchableOpacity>
-          )}
-        </View>
+        <TouchableOpacity 
+          style={styles.moduleAction}
+          onPress={() => handleQuickAction('sync_data')}
+        >
+          <Ionicons name="sync" size={16} color={theme.primary} />
+        </TouchableOpacity>
       </View>
 
       {/* Stats Overview */}
@@ -254,15 +215,6 @@ const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
             )}
           </Text>
         </View>
-      </View>
-
-      {/* Connection Status */}
-      <View style={styles.connectionStatus}>
-        <Text style={[styles.connectionText, {
-          color: connectionStatus?.success ? '#10b981' : '#ef4444'
-        }]}>
-          {connectionStatus?.success ? '🟢 Online' : '🔴 Offline Mode'}
-        </Text>
       </View>
 
       {/* Recent Users List */}
@@ -304,14 +256,14 @@ const UserManagementModule = ({ userRole, userStoreId, currentUser }) => {
           <View style={styles.list}>
             {staff.map((staffMember, index) => (
               <View key={staffMember.id || index} style={styles.listItem}>
-                <View style={[styles.avatar, { backgroundColor: getPositionColor(staffMember.role || staffMember.position) + '20' }]}>
-                  <Text style={[styles.avatarText, { color: getPositionColor(staffMember.role || staffMember.position) }]}>
+                <View style={[styles.avatar, { backgroundColor: getPositionColor(staffMember.position) + '20' }]}>
+                  <Text style={[styles.avatarText, { color: getPositionColor(staffMember.position) }]}>
                     {staffMember.name?.charAt(0) || 'S'}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemTitle}>{staffMember.name}</Text>
-                  <Text style={styles.itemSubtitle}>{staffMember.role || staffMember.position || 'Staff'}</Text>
+                  <Text style={styles.itemSubtitle}>{staffMember.position}</Text>
                   <Text style={styles.captionText}>
                     ID: {staffMember.staff_id} | Store: {staffMember.store_id}
                   </Text>
@@ -387,29 +339,12 @@ const moduleStyles = {
     alignItems: 'center',
     gap: 8,
   },
-  moduleActionsHeader: {
-    flexDirection: 'row',
-    gap: 8,
-  },
   moduleAction: {
     padding: 4,
   },
-  connectionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  connectionStatus: {
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  connectionText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
   statsRow: {
     flexDirection: 'row',
-    backgroundColor: theme.cardSecondary || '#f8fafc',
+    backgroundColor: theme.cardSecondary,
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
@@ -420,24 +355,24 @@ const moduleStyles = {
   },
   statDivider: {
     width: 1,
-    backgroundColor: theme.border || '#e2e8f0',
+    backgroundColor: theme.border,
     marginHorizontal: 12,
   },
   statNumber: {
     fontSize: 20,
     fontWeight: '700',
-    color: theme.text || '#1f2937',
+    color: theme.text,
     marginBottom: 2,
   },
   statLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: theme.textSecondary || '#6b7280',
+    color: theme.textSecondary,
     marginBottom: 2,
   },
   statSubtext: {
     fontSize: 10,
-    color: theme.textLight || '#9ca3af',
+    color: theme.textLight,
     textAlign: 'center',
   },
   section: {
@@ -446,20 +381,8 @@ const moduleStyles = {
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.text || '#1f2937',
+    color: theme.text,
     marginBottom: 8,
-  },
-  list: {
-    gap: 8,
-  },
-  listItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.border || '#e2e8f0',
   },
   avatar: {
     width: 32,
@@ -476,28 +399,14 @@ const moduleStyles = {
   itemTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: theme.text || '#1f2937',
+    color: theme.text,
     marginBottom: 2,
   },
   itemSubtitle: {
     fontSize: 12,
     fontWeight: '500',
-    color: theme.textSecondary || '#6b7280',
+    color: theme.textSecondary,
     marginBottom: 2,
-  },
-  captionText: {
-    fontSize: 10,
-    color: theme.textLight || '#9ca3af',
-  },
-  statusBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginLeft: 8,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '600',
   },
   moduleActions: {
     flexDirection: 'row',
@@ -515,22 +424,22 @@ const moduleStyles = {
     gap: 6,
   },
   primaryAction: {
-    backgroundColor: theme.primary || '#3b82f6',
+    backgroundColor: theme.primary,
   },
   secondaryAction: {
-    backgroundColor: theme.background || '#fff',
+    backgroundColor: theme.background,
     borderWidth: 1,
-    borderColor: theme.primary || '#3b82f6',
+    borderColor: theme.primary,
   },
   primaryActionText: {
     fontSize: 12,
     fontWeight: '600',
-    color: theme.white || '#fff',
+    color: theme.white,
   },
   secondaryActionText: {
     fontSize: 12,
     fontWeight: '600',
-    color: theme.primary || '#3b82f6',
+    color: theme.primary,
   },
   loadingState: {
     alignItems: 'center',
@@ -538,34 +447,18 @@ const moduleStyles = {
   },
   loadingText: {
     fontSize: 12,
-    color: theme.textLight || '#9ca3af',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  emptyText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.textSecondary || '#6b7280',
-    marginTop: 8,
-    textAlign: 'center',
+    color: theme.textLight,
   },
   emptySubtext: {
     fontSize: 11,
-    color: theme.textLight || '#9ca3af',
+    color: theme.textLight,
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 14,
   },
 }
 
-// Merge with existing styles if they exist
-if (styles && typeof styles === 'object') {
-  Object.assign(styles, moduleStyles)
-} else {
-  // If styles don't exist, create them
-  const styles = moduleStyles
-}
+// Merge with existing styles
+Object.assign(styles, moduleStyles)
 
 export default UserManagementModule

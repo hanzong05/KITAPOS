@@ -1,12 +1,11 @@
-// services/authService.js - Complete implementation with Supabase integration
+// services/authService.js - Simplified version for users only
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import databaseService from './database';
 
 class AuthService {
   constructor() {
-    // UPDATE THIS URL to your actual Vercel deployment URL
-    this.baseURL = 'https://your-vercel-project.vercel.app'; // Replace with your actual URL
+    this.baseURL = 'https://kitapos-middleware.vercel.app';
     this.token = null;
     this.user = null;
     this.isOfflineMode = false;
@@ -101,7 +100,7 @@ class AuthService {
     }
   }
 
-  // Sync users from Supabase
+  // Simplified sync method - only sync users
   async syncUsersFromSupabase(force = false) {
     try {
       console.log('🔄 Starting users sync from Supabase...');
@@ -115,7 +114,7 @@ class AuthService {
         }
       }
 
-      // Get users from Supabase via Vercel API
+      // Get users from Supabase
       const response = await this.api.get('/sync/users');
       const { users } = response.data;
       
@@ -157,7 +156,7 @@ class AuthService {
     }
   }
 
-  // Login method with online/offline fallback
+  // Login method with simplified offline fallback
   async login(email, password) {
     try {
       console.log('🔐 Attempting login for:', email);
@@ -174,7 +173,7 @@ class AuthService {
       let loginResult = null;
       let isOnlineLogin = false;
 
-      // Try online login first (Vercel + Supabase)
+      // Try online login first
       try {
         const response = await this.api.post('/auth/login', {
           email: email.trim().toLowerCase(),
@@ -284,123 +283,6 @@ class AuthService {
     }
   }
 
-  // Get profile
-  async getProfile() {
-    try {
-      if (this.isOfflineMode) {
-        const user = await databaseService.getUserById(this.user.id);
-        return user;
-      } else {
-        const response = await this.api.get('/auth/profile');
-        this.user = response.data.user;
-        await AsyncStorage.setItem('auth_user', JSON.stringify(this.user));
-        return this.user;
-      }
-    } catch (error) {
-      console.error('Get profile failed:', error);
-      throw error;
-    }
-  }
-
-  // Verify token
-  async verifyToken() {
-    try {
-      if (!this.token) return false;
-      
-      const response = await this.api.get('/auth/profile');
-      return response.status === 200;
-      
-    } catch (error) {
-      console.log('Token verification failed:', error.response?.status || error.message);
-      return false;
-    }
-  }
-
-  // Logout
-  async logout() {
-    try {
-      console.log('🚪 Logging out...');
-      
-      const wasAuthenticated = !!(this.token && this.user);
-      const userEmail = this.user?.email || 'unknown';
-      
-      // Try to notify server
-      if (wasAuthenticated && !this.isOfflineMode) {
-        try {
-          await this.api.post('/auth/logout');
-          console.log('✅ Server logout notification successful');
-        } catch (serverError) {
-          console.log('⚠️ Server logout notification failed:', serverError.message);
-        }
-      }
-      
-      // Clear local data
-      this.token = null;
-      this.user = null;
-      this.isOfflineMode = false;
-      await this.clearStoredAuth();
-      
-      console.log(`✅ Logout successful for: ${userEmail}`);
-      
-    } catch (error) {
-      console.error('❌ Logout error:', error);
-      // Ensure local cleanup happens
-      this.token = null;
-      this.user = null;
-      this.isOfflineMode = false;
-      await this.clearStoredAuth();
-    }
-  }
-
-  // Clear local auth
-  async clearLocalAuth() {
-    console.log('🧹 Clearing local authentication...');
-    this.token = null;
-    this.user = null;
-    this.isOfflineMode = false;
-    await this.clearStoredAuth();
-  }
-
-  // Check server health
-  async checkHealth(retryCount = 3) {
-    for (let attempt = 1; attempt <= retryCount; attempt++) {
-      try {
-        console.log(`🔍 Health check attempt ${attempt}/${retryCount}`);
-        
-        const response = await axios.get(`${this.baseURL}/health`, { 
-          timeout: 10000,
-          headers: { 'Content-Type': 'application/json' }
-        });
-        
-        console.log('✅ Health check successful:', response.data);
-        return {
-          status: response.data.status,
-          database: response.data.database,
-          timestamp: response.data.timestamp,
-          server_info: response.data.server || {},
-          supabase: response.data.supabase || {}
-        };
-        
-      } catch (error) {
-        console.error(`❌ Health check attempt ${attempt} failed:`, error.message);
-        
-        if (error.response?.status === 503 && attempt < retryCount) {
-          console.log(`⏳ Server returned 503, waiting before retry...`);
-          await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-          continue;
-        }
-        
-        if (attempt === retryCount) {
-          if (error.response?.status === 503) {
-            throw new Error('Server temporarily unavailable. Please try again.');
-          } else {
-            throw new Error(`Server health check failed: ${error.message}`);
-          }
-        }
-      }
-    }
-  }
-
   // Get sync status
   getSyncStatus() {
     return {
@@ -432,8 +314,132 @@ class AuthService {
   }
 
   // Force sync
-  async forceSync() {
+  async forcSync() {
     return await this.syncUsersFromSupabase(true);
+  }
+
+  // Verify token
+  async verifyToken() {
+    try {
+      if (!this.token) return false;
+      
+      const response = await this.api.get('/auth/profile');
+      return response.status === 200;
+      
+    } catch (error) {
+      console.log('Token verification failed:', error.response?.status || error.message);
+      return false;
+    }
+  }
+
+  // Logout
+  async logout() {
+    try {
+      console.log('🚪 Logging out...');
+      
+      const wasAuthenticated = !!(this.token && this.user);
+      const userEmail = this.user?.email || 'unknown';
+      
+      // Clear local data first
+      this.token = null;
+      this.user = null;
+      this.isOfflineMode = false;
+      await this.clearStoredAuth();
+      
+      // Try to notify server
+      if (wasAuthenticated) {
+        try {
+          const logoutApi = axios.create({
+            baseURL: this.baseURL,
+            timeout: 5000,
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+          await logoutApi.post('/auth/logout', {}, {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+          });
+          console.log('✅ Server logout notification successful');
+        } catch (serverError) {
+          console.log('⚠️ Server logout notification failed:', serverError.message);
+        }
+      }
+      
+      console.log(`✅ Logout successful for: ${userEmail}`);
+      
+    } catch (error) {
+      console.error('❌ Logout error:', error);
+      // Ensure local cleanup happens
+      this.token = null;
+      this.user = null;
+      this.isOfflineMode = false;
+      await this.clearStoredAuth();
+    }
+  }
+
+  // Clear local auth
+  async clearLocalAuth() {
+    console.log('🧹 Clearing local authentication...');
+    this.token = null;
+    this.user = null;
+    this.isOfflineMode = false;
+    await this.clearStoredAuth();
+  }
+
+  // Get profile
+  async getProfile() {
+    try {
+      if (this.isOfflineMode) {
+        const user = await databaseService.getUserById(this.user.id);
+        return user;
+      } else {
+        const response = await this.api.get('/auth/profile');
+        this.user = response.data.user;
+        await AsyncStorage.setItem('auth_user', JSON.stringify(this.user));
+        return this.user;
+      }
+    } catch (error) {
+      console.error('Get profile failed:', error);
+      throw error;
+    }
+  }
+
+  // Check server health
+  async checkHealth(retryCount = 3) {
+    for (let attempt = 1; attempt <= retryCount; attempt++) {
+      try {
+        console.log(`🔍 Health check attempt ${attempt}/${retryCount}`);
+        
+        const response = await axios.get(`${this.baseURL}/health`, { 
+          timeout: 10000,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        console.log('✅ Health check successful:', response.data);
+        return {
+          status: response.data.status,
+          database: response.data.database,
+          timestamp: response.data.timestamp,
+          server_info: response.data.server || {}
+        };
+        
+      } catch (error) {
+        console.error(`❌ Health check attempt ${attempt} failed:`, error.message);
+        
+        if (error.response?.status === 503 && attempt < retryCount) {
+          console.log(`⏳ Server returned 503, waiting before retry...`);
+          await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+          continue;
+        }
+        
+        if (attempt === retryCount) {
+          if (error.response?.status === 503) {
+            throw new Error('Server temporarily unavailable. Please try again.');
+          } else {
+            throw new Error(`Server health check failed: ${error.message}`);
+          }
+        }
+      }
+    }
   }
 
   // Get auth status
@@ -445,67 +451,6 @@ class AuthService {
       isOfflineMode: this.isOfflineMode,
       lastSyncTime: this.lastSyncTime
     };
-  }
-
-  // Get users (for admin/manager functionality)
-  async getUsers() {
-    try {
-      if (this.isOfflineMode) {
-        return await databaseService.getAllUsers();
-      } else {
-        const response = await this.api.get('/sync/users');
-        return response.data.users || [];
-      }
-    } catch (error) {
-      console.error('Get users failed:', error);
-      // Fallback to local users
-      try {
-        return await databaseService.getAllUsers();
-      } catch (localError) {
-        console.error('Local users fallback failed:', localError);
-        return [];
-      }
-    }
-  }
-
-  // Update profile
-  async updateProfile(profileData) {
-    try {
-      if (this.isOfflineMode) {
-        // In offline mode, just update local state
-        this.user = { ...this.user, ...profileData };
-        await AsyncStorage.setItem('auth_user', JSON.stringify(this.user));
-        return this.user;
-      } else {
-        // Update via API (you'll need to implement this endpoint)
-        const response = await this.api.put('/auth/profile', profileData);
-        this.user = response.data.user;
-        await AsyncStorage.setItem('auth_user', JSON.stringify(this.user));
-        return this.user;
-      }
-    } catch (error) {
-      console.error('Profile update failed:', error);
-      throw error;
-    }
-  }
-
-  // Change password
-  async changePassword(currentPassword, newPassword) {
-    try {
-      if (this.isOfflineMode) {
-        throw new Error('Password change not available in offline mode');
-      }
-      
-      const response = await this.api.post('/auth/change-password', {
-        currentPassword,
-        newPassword
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Password change failed:', error);
-      throw error;
-    }
   }
 
   // Utility methods

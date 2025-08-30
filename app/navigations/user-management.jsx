@@ -1,4 +1,4 @@
-// app/user-management.jsx - Complete user and staff management with Supabase integration
+// app/user-management.jsx - Complete user and staff management
 import React, { useState, useEffect } from 'react'
 import { 
   View, 
@@ -13,7 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../utils/authContext'
 import databaseService from '../../services/database'
-import staffService from '../../services/staffService'
+import staffDatabaseService from '../../services/staffDatabase'
 import StaffDataInspector from '../components/StaffDataInspector'
 
 const UserManagement = () => {
@@ -23,7 +23,6 @@ const UserManagement = () => {
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState('users') // 'users' or 'staff'
   const [showStaffInspector, setShowStaffInspector] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState(null)
   const [stats, setStats] = useState({
     users: { total: 0, active: 0 },
     staff: { total: 0, active: 0 }
@@ -33,17 +32,7 @@ const UserManagement = () => {
 
   useEffect(() => {
     loadData()
-    checkConnection()
   }, [user])
-
-  const checkConnection = async () => {
-    try {
-      const result = await staffService.testConnection()
-      setConnectionStatus(result)
-    } catch (error) {
-      setConnectionStatus({ success: false, error: error.message })
-    }
-  }
 
   const loadData = async () => {
     if (!user) return
@@ -86,15 +75,31 @@ const UserManagement = () => {
 
   const loadStaff = async () => {
     try {
-      // Use staffService to get staff with proper filtering
-      const staffData = await staffService.getStaff(user)
+      // Initialize staff database
+      await staffDatabaseService.initializeStaffDatabase()
+      
+      let staffData = []
+      
+      // Filter staff based on user role and store
+      if (user.role === 'super_admin') {
+        // Super admin sees all staff
+        staffData = await staffDatabaseService.getAllStaff()
+      } else if (user.store_id) {
+        // Other users see only their store's staff
+        staffData = await staffDatabaseService.getStaffByStoreId(user.store_id)
+      }
+      
       setStaff(staffData)
 
-      // Get staff stats
-      const staffStats = await staffService.getStaffStats(user)
+      // Calculate staff stats
+      const staffStats = {
+        total: staffData.length,
+        active: staffData.filter(s => s.is_active).length
+      }
+      
       setStats(prev => ({ ...prev, staff: staffStats }))
       
-      console.log('📊 Staff loaded:', staffStats)
+      console.log('📊 Staff loaded:', staffStats, 'Store filter:', user.store_id)
       
     } catch (error) {
       console.error('Error loading staff:', error)
@@ -104,7 +109,7 @@ const UserManagement = () => {
 
   const handleRefresh = async () => {
     setRefreshing(true)
-    await Promise.all([loadData(), checkConnection()])
+    await loadData()
     setRefreshing(false)
   }
 
@@ -198,16 +203,16 @@ const UserManagement = () => {
           'Staff Details',
           `Name: ${staffItem.name}\n` +
           `Staff ID: ${staffItem.staff_id}\n` +
-          `Position: ${staffItem.role || staffItem.position}\n` +
+          `Position: ${staffItem.position}\n` +
           `Store ID: ${staffItem.store_id}\n` +
-          `Hourly Rate: $${staffItem.hourly_rate}\n` +
-          `Passcode: ${'*'.repeat(staffItem.passcode?.length || 4)}\n` +
+          `Hourly Rate: ${staffItem.hourly_rate}\n` +
+          `Passcode: ${'*'.repeat(staffItem.passcode.length)}\n` +
           `Status: ${staffItem.is_active ? 'Active' : 'Inactive'}\n` +
           `Created: ${new Date(staffItem.created_at).toLocaleDateString()}`
         )
         break
         
-            case 'toggle':
+      case 'toggle':
         Alert.alert(
           `${staffItem.is_active ? 'Deactivate' : 'Activate'} Staff`,
           `Are you sure you want to ${staffItem.is_active ? 'deactivate' : 'activate'} ${staffName}?`,
@@ -234,11 +239,9 @@ const UserManagement = () => {
   const toggleStaffStatus = async (staffItem) => {
     try {
       const newStatus = staffItem.is_active ? 0 : 1
-      
-      // Use staffService for consistency with Supabase integration
-      await staffService.updateStaff(staffItem.id, {
+      await staffDatabaseService.updateStaff(staffItem.id, {
         is_active: newStatus
-      }, user)
+      })
       
       Alert.alert(
         'Success',
@@ -253,77 +256,11 @@ const UserManagement = () => {
 
   const deleteStaff = async (staffItem) => {
     try {
-      const result = await staffService.deleteStaff(staffItem.id, user)
-      
-      // Show detailed feedback based on what happened
-      if (result.supabaseDeleted && result.localDeleted) {
-        Alert.alert(
-          'Success', 
-          'Staff member deleted successfully from both server and local database'
-        )
-      } else if (result.localDeleted) {
-        Alert.alert(
-          'Partially Successful', 
-          'Staff member deleted locally. Server deletion failed - changes will sync when connection is restored.',
-          [{ text: 'OK' }]
-        )
-      } else {
-        Alert.alert('Error', 'Failed to delete staff member')
-      }
-      
+      await staffDatabaseService.deleteStaff(staffItem.id)
+      Alert.alert('Success', 'Staff member deleted successfully')
       loadStaff()
     } catch (error) {
       Alert.alert('Error', 'Failed to delete staff: ' + error.message)
-    }
-  }
-
-  const testSupabaseConnection = async () => {
-    try {
-      const result = await staffService.testConnection()
-      Alert.alert(
-        'Connection Test', 
-        result.success ? 
-          `✅ Connected to Supabase\nStaff count: ${result.count}` : 
-          `❌ Connection failed\nError: ${result.error}`,
-        [{ text: 'OK' }]
-      )
-    } catch (error) {
-      Alert.alert('Connection Error', error.message)
-    }
-  }
-
-  const syncFromSupabase = async () => {
-    try {
-      Alert.alert(
-        'Sync Data',
-        'This will fetch the latest data from Supabase and update your local database.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Sync Now', 
-            onPress: async () => {
-              setLoading(true)
-              try {
-                // Force refresh from Supabase
-                const staffData = await staffService.getStaff(user, { forceRefresh: true })
-                setStaff(staffData)
-                
-                // Reload stats
-                const staffStats = await staffService.getStaffStats(user)
-                setStats(prev => ({ ...prev, staff: staffStats }))
-                
-                Alert.alert('Success', 'Data synced successfully!')
-              } catch (error) {
-                Alert.alert('Sync Failed', error.message)
-              } finally {
-                setLoading(false)
-              }
-            }
-          }
-        ]
-      )
-    } catch (error) {
-      Alert.alert('Error', 'Failed to sync data: ' + error.message)
     }
   }
 
@@ -342,7 +279,6 @@ const UserManagement = () => {
       case 'manager': 
         return '#ea580c'
       case 'cashier': 
-      case 'staff':
         return '#0891b2'
       case 'sales associate': 
         return '#7c3aed'
@@ -413,8 +349,8 @@ const UserManagement = () => {
   const renderStaffItem = ({ item }) => (
     <View style={styles.itemContainer}>
       <View style={styles.itemHeader}>
-        <View style={[styles.avatar, { backgroundColor: getPositionColor(item.role || item.position) + '20' }]}>
-          <Text style={[styles.avatarText, { color: getPositionColor(item.role || item.position) }]}>
+        <View style={[styles.avatar, { backgroundColor: getPositionColor(item.position) + '20' }]}>
+          <Text style={[styles.avatarText, { color: getPositionColor(item.position) }]}>
             {item.name?.charAt(0) || 'S'}
           </Text>
         </View>
@@ -422,8 +358,8 @@ const UserManagement = () => {
           <Text style={styles.itemName}>{item.name}</Text>
           <Text style={styles.itemEmail}>ID: {item.staff_id} | Store: {item.store_id}</Text>
           <View style={styles.badgeContainer}>
-            <View style={[styles.roleBadge, { backgroundColor: getPositionColor(item.role || item.position) }]}>
-              <Text style={styles.roleText}>{(item.role || item.position || 'Staff').toUpperCase()}</Text>
+            <View style={[styles.roleBadge, { backgroundColor: getPositionColor(item.position) }]}>
+              <Text style={styles.roleText}>{item.position}</Text>
             </View>
             <View style={[
               styles.statusBadge, 
@@ -507,16 +443,6 @@ const UserManagement = () => {
           {user?.role === 'super_admin' ? 'Manage all users and staff' : 
            user?.store_id ? `Store: ${user.store_id}` : 'Manage users and staff'}
         </Text>
-        
-        {/* Connection Status Indicator */}
-        <View style={styles.connectionStatus}>
-          <View style={[styles.connectionDot, { 
-            backgroundColor: connectionStatus?.success ? '#10b981' : '#ef4444' 
-          }]} />
-          <Text style={styles.connectionText}>
-            {connectionStatus?.success ? 'Connected to Supabase' : 'Offline Mode'}
-          </Text>
-        </View>
       </View>
 
       {/* Stats Overview */}
@@ -583,8 +509,8 @@ const UserManagement = () => {
       </View>
 
       {/* Action Buttons */}
-      <View style={styles.actionContainer}>
-        {activeTab === 'staff' && (
+      {activeTab === 'staff' && (
+        <View style={styles.actionContainer}>
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => setShowStaffInspector(true)}
@@ -592,26 +518,8 @@ const UserManagement = () => {
             <Ionicons name="add-circle" size={20} color="#fff" />
             <Text style={styles.primaryButtonText}>Manage Staff</Text>
           </TouchableOpacity>
-        )}
-        
-        <TouchableOpacity
-          style={[styles.secondaryButton, { marginLeft: 10 }]}
-          onPress={syncFromSupabase}
-        >
-          <Ionicons name="sync" size={20} color="#3b82f6" />
-          <Text style={styles.secondaryButtonText}>Sync Data</Text>
-        </TouchableOpacity>
-        
-        {__DEV__ && (
-          <TouchableOpacity
-            style={[styles.secondaryButton, { marginLeft: 10, backgroundColor: '#f59e0b' }]}
-            onPress={testSupabaseConnection}
-          >
-            <Ionicons name="wifi" size={20} color="#fff" />
-            <Text style={[styles.secondaryButtonText, { color: '#fff' }]}>Test</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* Content List */}
       <View style={styles.listContainer}>
@@ -703,21 +611,6 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 4,
   },
-  connectionStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 6,
-  },
-  connectionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  connectionText: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -795,7 +688,6 @@ const styles = StyleSheet.create({
     color: '#3b82f6',
   },
   actionContainer: {
-    flexDirection: 'row',
     paddingHorizontal: 20,
     marginBottom: 16,
   },
@@ -808,28 +700,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 8,
     gap: 8,
-    flex: 1,
   },
   primaryButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#3b82f6',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    gap: 6,
-  },
-  secondaryButtonText: {
-    color: '#3b82f6',
-    fontSize: 14,
     fontWeight: '600',
   },
   listContainer: {
